@@ -6,7 +6,7 @@
  
 (define BLOG
   (list (post "Second Post" "This is another post" '("Comment one" "Comment two"))
-        (post "First Post" "This is my first post" '())))
+        (post "First Post" "This is my first post" '("First Comment"))))
 
 (define (blog-insert-post! a-blog a-post)
   (set-blog-posts! a-blog
@@ -47,7 +47,7 @@
 (define (render-post-detail-page a-post request)
   (define (response-generator embed/url)
     (response/xexpr
-     `(html (head (title (string-append (post-title a-post) " | RFR Blog")))
+     `(html (head (title (string-append (post-title a-post) " | My Blog")))
             (body
              (h1 ,(post-title a-post))
              (p ,(post-body a-post))
