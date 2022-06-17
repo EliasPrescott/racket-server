@@ -1,91 +1,136 @@
-#lang web-server/insta
+#lang racket
  
-(struct post (title body comments) #:mutable)
+(require web-server/servlet)
+(provide/contract (start (request? . -> . response?)))
 
-(struct blog (posts) #:mutable)
- 
-(define BLOG
-  (list (post "Second Post" "This is another post" '("Comment one" "Comment two"))
-        (post "First Post" "This is my first post" '("First Comment"))))
+(require web-server/formlets
+         "blog-model.rkt")
 
-(define (blog-insert-post! a-blog a-post)
-  (set-blog-posts! a-blog
-                   (cons a-post (blog-posts a-blog))))
-
-(define (post-insert-comment! a-post a-comment)
-  (set-post-comments! a-post
-                      (cons a-comment (post-comments a-post))))
- 
 (define (start request)
-  (render-blog-page BLOG request))
+  (render-blog-page
+   (initialize-blog!
+    (build-path (current-directory-for-user)
+                "the-blog-data.sqlite"))
+  request))
+
+(define new-post-formlet
+  (formlet
+   (#%# ,{input-string . => . title}
+        ,{input-string . => . body})
+   (values title body)))
  
 (define (render-blog-page a-blog request)
   (define (response-generator embed/url)
     (response/xexpr
-     `(html (head (title "My Blog"))
+     `(html (head (title "My Blog")
+                  (link ((rel "stylesheet")
+                       (href "/style.css")
+                       (type "text/css"))))
             (body
              (h1 "My Blog")
-             ,(render-posts a-blog)
-             (form ((action
-                     ,(embed/url insert-post-handler)))
-              (label "Title:" (input ((name "title"))))
-              (label "Body Content:" (textarea ((name "body"))))
-              (input ((type "Submit"))))))))
-
-  (define (parse-post bindings)
-    (post (extract-binding/single 'title bindings)
-          (extract-binding/single 'body bindings)
-          (list)))
-  
+             ,(render-posts a-blog embed/url)
+             (form ([action
+                     ,(embed/url insert-post-handler)])
+                   ,@(formlet-display new-post-formlet)
+                   (input ([type "submit"])))))))
+ 
   (define (insert-post-handler request)
-    (blog-insert-post!
-     BLOG (parse-post (request-bindings request)))
-    (render-blog-page))
-    
+    (define-values (title body)
+      (formlet-process new-post-formlet request))
+    (blog-insert-post! a-blog title body)
+    (render-blog-page a-blog (redirect/get)))
   (send/suspend/dispatch response-generator))
 
-(define (render-post-detail-page a-post request)
+(define new-comment-formlet
+  input-string)
+
+(define (render-post-detail-page a-blog a-post request)
   (define (response-generator embed/url)
     (response/xexpr
-     `(html (head (title (string-append (post-title a-post) " | My Blog")))
+     `(html (head (title "Post Details")
+                  (link ((rel "stylesheet")
+                       (href "/style.css")
+                       (type "text/css"))))
             (body
-             (h1 ,(post-title a-post))
+             (h1 "Post Details")
+             (h2 ,(post-title a-post))
              (p ,(post-body a-post))
              ,(render-as-itemized-list
                (post-comments a-post))
-             (form ((action
-                     ,(embed/url insert-comment-handler)))
-                   (textarea ((name "comment"))
-                             ((placeholder "Share your thoughts...")))
-                   (input ((type "submit"))))))))
-  (define (parse-comment bindings)
-    (extract-binding/single 'comment bindings))
-
-  (define (insert-comment-handler a-request)
-    (post-insert-comment!
-     a-post (parse-comment (request-bindings a-request)))
-    (render-post-detail-page a-post a-request))
-  
+             (form ([action
+                     ,(embed/url insert-comment-handler)])
+                   ,@(formlet-display new-comment-formlet)
+                   (input ([type "submit"])))
+             (a ([href ,(embed/url back-handler)])
+                "Back to the blog")))))
+ 
+  (define (insert-comment-handler request)
+    (render-confirm-add-comment-page
+     a-blog
+     (formlet-process new-comment-formlet request)
+     a-post
+     request))
+ 
+  (define (back-handler request)
+    (render-blog-page a-blog request))
   (send/suspend/dispatch response-generator))
 
-(define (render-post a-post embed/url)
+(define (render-confirm-add-comment-page a-blog a-comment
+                                         a-post request)
+  (define (response-generator embed/url)
+    (response/xexpr
+     `(html (head (title "Add a Comment")
+                  (link ((rel "stylesheet")
+                       (href "/style.css")
+                       (type "text/css"))))
+            (body
+             (h1 "Add a Comment")
+             "The comment: " (div (p ,a-comment))
+             "will be added to "
+             (div ,(post-title a-post))
+ 
+             (p (a ([href ,(embed/url yes-handler)])
+                   "Yes, add the comment."))
+             (p (a ([href ,(embed/url cancel-handler)])
+                   "No, I changed my mind!"))))))
+ 
+  (define (yes-handler request)
+    (post-insert-comment! a-blog a-post a-comment)
+    (render-post-detail-page a-blog a-post (redirect/get)))
+ 
+  (define (cancel-handler request)
+    (render-post-detail-page a-blog a-post request))
+  (send/suspend/dispatch response-generator))
+
+(define (render-post a-blog a-post embed/url)
   (define (view-post-handler request)
-    (render-post-detail-page a-post request))
-  `(div ((class "post"))
-        (a ((href ,(embed/url view-post-handler)))
+    (render-post-detail-page a-blog a-post request))
+  `(div ([class "post"])
+        (a ([href ,(embed/url view-post-handler)])
            ,(post-title a-post))
         (p ,(post-body a-post))
         (div ,(number->string (length (post-comments a-post)))
              " comment(s)")))
  
-(define (render-posts embed/url)
+(define (render-posts a-blog embed/url)
   (define (render-post/embed/url a-post)
-    (render-post a-post embed/url))
-  `(div ((class "posts"))
-        ,@(map render-post/embed/url (blog-posts BLOG))))
+    (render-post a-blog a-post embed/url))
+  `(div ([class "posts"])
+        ,@(map render-post/embed/url (blog-posts a-blog))))
 
 (define (render-as-itemized-list fragments)
   `(ul ,@(map render-as-item fragments)))
 
 (define (render-as-item a-fragment)
   `(li ,a-fragment))
+
+(require web-server/servlet-env)
+(serve/servlet start
+               #:launch-browser? #f
+               #:quit? #f
+               #:listen-ip #f
+               #:port 8000
+               #:extra-files-paths
+               (list (build-path (current-directory-for-user) "static"))
+               #:servlet-path
+               "/servlets/server.rkt")

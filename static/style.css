@@ -1,0 +1,30 @@
+body {
+    background-color: whitesmoke;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 24px;
+}
+
+.posts {
+    display: flex;
+    gap: 1em;
+}
+
+.posts .post {
+    padding: 1em 2em;
+    background-color: white;
+    border: 2px solid black;
+    border-radius: 1em;
+}
+
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+}
+
+label {
+    display: flex;
+    flex-direction: column;
+}
